@@ -1,0 +1,49 @@
+pipeline {
+    agent any
+    
+    tools {
+        jdk 'jdk17'
+    }
+    
+    triggers {
+        githubPush()
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('Test') {
+            steps {
+                sh '''
+                    chmod +x ./gradlew
+                    ./gradlew test
+                '''
+            }
+            post {
+                always {
+                    // 테스트 결과 리포트 저장
+                    junit '**/build/test-results/test/*.xml'
+                }
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                sh './gradlew clean build -x test'
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo 'CI Pipeline succeeded!'
+        }
+        failure {
+            echo 'CI Pipeline failed!'
+        }
+    }
+}
