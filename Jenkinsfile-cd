@@ -10,11 +10,25 @@ pipeline {
         DOCKER_TAG = "${BUILD_NUMBER}"
     }
     
+    // PR 머지 이벤트만 감지하도록 설정
     triggers {
-        githubPush()
+        githubPush(
+            branches: ['main', 'master']  // main 또는 master 브랜치에 머지될 때만 실행
+        )
     }
     
     stages {
+        stage('Check Branch') {
+            steps {
+                script {
+                    def branch = sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
+                    if (!(branch in ['main', 'master'])) {
+                        error("CD pipeline should only run on main/master branch. Current branch: ${branch}")
+                    }
+                }
+            }
+        }
+        
         stage('Checkout') {
             steps {
                 checkout scm
@@ -56,7 +70,6 @@ pipeline {
         
         stage('Health Check') {
             steps {
-                // 애플리케이션이 정상적으로 시작됐는지 확인
                 sh '''
                     sleep 30  # 애플리케이션 시작 대기
                     curl -f http://localhost:8080/actuator/health || exit 1
@@ -71,7 +84,6 @@ pipeline {
         }
         failure {
             echo 'CD Pipeline failed!'
-            // 실패시 이전 버전으로 롤백
             sh '''
                 docker stop your-project
                 docker rm your-project
@@ -82,7 +94,6 @@ pipeline {
             '''
         }
         always {
-            // 오래된 도커 이미지 정리 (최근 3개만 유지)
             sh '''
                 docker images ${DOCKER_IMAGE} --format "{{.ID}}" | 
                 sort -r | 
