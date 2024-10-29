@@ -32,4 +32,17 @@ public class TodoService {
         todo.complete();
         return todo;
     }
+
+    @Transactional
+    public Todo updateTitle(Long id, String newTitle) {
+        if (newTitle == null || newTitle.trim().isEmpty()) {
+            throw new IllegalArgumentException("Title cannot be empty");
+        }
+
+        Todo todo = todoRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Todo not found"));
+
+        todo.updateTitle(newTitle.trim());
+        return todo;
+    }
 }
