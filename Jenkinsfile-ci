@@ -6,13 +6,23 @@ pipeline {
     }
     
     triggers {
-        githubPush()
+        // PR 이벤트를 감지하도록 변경
+        pullRequestMonitor()
     }
     
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                // PR 브랜치를 체크아웃
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: '${ghprbSourceBranch}']],
+                    extensions: [],
+                    userRemoteConfigs: [[
+                        credentialsId: 'github-credentials',
+                        url: 'YOUR_REPO_URL'
+                    ]]
+                ])
             }
         }
         
@@ -25,25 +35,17 @@ pipeline {
             }
             post {
                 always {
-                    // 테스트 결과 리포트 저장
                     junit '**/build/test-results/test/*.xml'
+                    
+                    // PR에 테스트 결과를 코멘트로 남김
+                    step([
+                        $class: 'GitHubPRStatusBuilder',
+                        statusMessage: [content: 'Test results available']
+                    ])
                 }
             }
         }
         
-        stage('Build') {
-            steps {
-                sh './gradlew clean build -x test'
-            }
-        }
-    }
-    
-    post {
-        success {
-            echo 'CI Pipeline succeeded!'
-        }
-        failure {
-            echo 'CI Pipeline failed!'
-        }
+        // ... 나머지 stages
     }
 }
