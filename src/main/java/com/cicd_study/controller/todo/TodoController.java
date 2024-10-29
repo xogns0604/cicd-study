@@ -1,4 +1,4 @@
-package com.cicd_study.controller;
+package com.cicd_study.controller.todo;
 
 import com.cicd_study.domain.entity.Todo;
 import com.cicd_study.service.TodoService;
