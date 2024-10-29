@@ -12,10 +12,8 @@ pipeline {
         DOCKER_SERVER_USER = 'clovir'    
     }
     
-    triggers {
-        githubPush(
-            branches: ['main']  // main 브랜치에 머지될 때만 실행
-        )
+   triggers {
+        githubPush()  // branches 파라미터 제거
     }
     
     stages {
