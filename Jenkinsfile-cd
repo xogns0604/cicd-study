@@ -45,12 +45,22 @@ pipeline {
        }
        
        stage('Docker Build') {
-           steps {
-               script {
-                   docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
-               }
-           }
-       }
+          steps {
+              sshagent(['docker-server-ssh']) {
+                  // 프로젝트 파일들을 배포 서버로 전송
+                  sh """
+                      ssh -o StrictHostKeyChecking=no ${DOCKER_SERVER_USER}@${DOCKER_SERVER} 'mkdir -p ~/deploy'
+                      scp -o StrictHostKeyChecking=no Dockerfile ${DOCKER_SERVER_USER}@${DOCKER_SERVER}:~/deploy/
+                      scp -o StrictHostKeyChecking=no build/libs/*.jar ${DOCKER_SERVER_USER}@${DOCKER_SERVER}:~/deploy/
+                      
+                      # 원격 서버에서 Docker 빌드 실행
+                      ssh -o StrictHostKeyChecking=no ${DOCKER_SERVER_USER}@${DOCKER_SERVER} '\
+                          cd ~/deploy && \
+                          docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .'
+                  """
+              }
+          }
+      }
        
        stage('Docker Deploy') {
            steps {
