@@ -6,20 +6,13 @@ pipeline {
     }
     
     stages {
-        stage('Check if PR') {
+        stage('Check if PR to main') {
             steps {
                 script {
-                    if (env.CHANGE_ID == null) {
-                        // CHANGE_ID가 없다면 PR이 아님
-                        error('This build is not from a Pull Request. Skipping...')
+                    if (env.CHANGE_TARGET != 'main') {
+                        error('This build is only for PRs to main branch')
                     }
                 }
-            }
-        }
-        
-        stage('Checkout') {
-            steps {
-                checkout scm
             }
         }
         
