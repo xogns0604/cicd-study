@@ -1,119 +1,118 @@
 pipeline {
-    agent any
-    
-    tools {
-        jdk 'jdk17'
-    }
-    
-    environment {
-        DOCKER_IMAGE = 'cicd-test-project'
-        DOCKER_TAG = "${BUILD_NUMBER}"
-        DOCKER_SERVER = '10.200.2.99'  
-        DOCKER_SERVER_USER = 'clovir'    
-    }
-    
-   triggers {
-        githubPush()  // branches 파라미터 제거
-    }
-    
-    stages {
-        stage('Check Branch') {
-            steps {
-                script {
-                    // GitHub에서 PR 머지 시의 타겟 브랜치 확인
-                    def targetBranch = env.BRANCH_NAME ?: sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
-                    echo "Current branch: ${targetBranch}"
-                    if (!(targetBranch in ['main', 'origin/main'])) {
-                        error("CD pipeline should only run on main branch. Current branch: ${targetBranch}")
-                    }
-                }
-            }
-        }
-        
-        stage('Checkout') {
-            steps {
-                checkout scm
-            }
-        }
-        
-        stage('Build') {
-            steps {
-                sh '''
-                    chmod +x ./gradlew
-                    ./gradlew clean build -x test
-                '''
-            }
-        }
-        
-        stage('Docker Build') {
-            steps {
-                script {
-                    docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
-                }
-            }
-        }
-        
-        stage('Docker Deploy') {
-            steps {
-                sshagent(['docker-server-ssh']) {
-                    sh """
-                        # 원격 서버에서 기존 컨테이너 중지 및 제거
-                        ssh ${DOCKER_SERVER_USER}@${DOCKER_SERVER} '\
-                            docker ps -f name=cicd-test-project -q | xargs --no-run-if-empty docker stop && \
-                            docker ps -a -f name=cicd-test-project -q | xargs --no-run-if-empty docker rm'
-                        
-                        # 새 버전의 이미지를 원격 서버로 전송
-                        docker save ${DOCKER_IMAGE}:${DOCKER_TAG} | ssh ${DOCKER_SERVER_USER}@${DOCKER_SERVER} 'docker load'
-                        
-                        # 원격 서버에서 새 버전 배포
-                        ssh ${DOCKER_SERVER_USER}@${DOCKER_SERVER} '\
-                            docker run -d \
-                                --name cicd-test-project \
-                                -p 8080:8080 \
-                                ${DOCKER_IMAGE}:${DOCKER_TAG}'
-                    """
-                }
-            }
-        }
-        
-        stage('Health Check') {
-            steps {
-                sh """
-                    sleep 30  # 애플리케이션 시작 대기
-                    curl -f http://${DOCKER_SERVER}:8080/actuator/health || exit 1
-                """
-            }
-        }
-    }
-    
-    post {
-        success {
-            echo 'CD Pipeline succeeded!'
-        }
-        failure {
-            echo 'CD Pipeline failed!'
-            sshagent(['docker-server-ssh']) {
-                sh """
-                    ssh ${DOCKER_SERVER_USER}@${DOCKER_SERVER} '\
-                        docker stop cicd-test-project && \
-                        docker rm cicd-test-project && \
-                        docker run -d \
-                            --name cicd-test-project \
-                            -p 8080:8080 \
-                            ${DOCKER_IMAGE}:${BUILD_NUMBER.toInteger() - 1}'
-                """
-            }
-        }
-        always {
-            sshagent(['docker-server-ssh']) {
-                sh """
-                    ssh ${DOCKER_SERVER_USER}@${DOCKER_SERVER} '\
-                        docker images ${DOCKER_IMAGE} --format "{{.ID}}" | \
-                        sort -r | \
-                        tail -n +4 | \
-                        xargs --no-run-if-empty docker rmi'
-                """
-            }
-        }
-    }
+   agent any
+   
+   tools {
+       jdk 'jdk17'
+   }
+   
+   environment {
+       DOCKER_IMAGE = 'cicd-test-project'
+       DOCKER_TAG = "${BUILD_NUMBER}"
+       DOCKER_SERVER = '10.200.2.99'  
+       DOCKER_SERVER_USER = 'clovir'    
+   }
+   
+  triggers {
+       githubPush()
+   }
+   
+   stages {
+       stage('Check Branch') {
+           steps {
+               script {
+                   def targetBranch = env.BRANCH_NAME ?: sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
+                   echo "Current branch: ${targetBranch}"
+                   if (!(targetBranch in ['main', 'origin/main'])) {
+                       error("CD pipeline should only run on main branch. Current branch: ${targetBranch}")
+                   }
+               }
+           }
+       }
+       
+       stage('Checkout') {
+           steps {
+               checkout scm
+           }
+       }
+       
+       stage('Build') {
+           steps {
+               sh '''
+                   chmod +x ./gradlew
+                   ./gradlew clean build -x test
+               '''
+           }
+       }
+       
+       stage('Docker Build') {
+           steps {
+               script {
+                   docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
+               }
+           }
+       }
+       
+       stage('Docker Deploy') {
+           steps {
+               sshagent(['docker-server-ssh']) {
+                   sh """
+                       # 원격 서버에서 기존 컨테이너 중지 및 제거
+                       ssh -o StrictHostKeyChecking=no ${DOCKER_SERVER_USER}@${DOCKER_SERVER} '\
+                           docker ps -f name=cicd-test-project -q | xargs --no-run-if-empty docker stop && \
+                           docker ps -a -f name=cicd-test-project -q | xargs --no-run-if-empty docker rm'
+                       
+                       # 새 버전의 이미지를 원격 서버로 전송
+                       docker save ${DOCKER_IMAGE}:${DOCKER_TAG} | ssh -o StrictHostKeyChecking=no ${DOCKER_SERVER_USER}@${DOCKER_SERVER} 'docker load'
+                       
+                       # 원격 서버에서 새 버전 배포
+                       ssh -o StrictHostKeyChecking=no ${DOCKER_SERVER_USER}@${DOCKER_SERVER} '\
+                           docker run -d \
+                               --name cicd-test-project \
+                               -p 8080:8080 \
+                               ${DOCKER_IMAGE}:${DOCKER_TAG}'
+                   """
+               }
+           }
+       }
+       
+       stage('Health Check') {
+           steps {
+               sh """
+                   sleep 30  # 애플리케이션 시작 대기
+                   curl -f http://${DOCKER_SERVER}:8080/actuator/health || exit 1
+               """
+           }
+       }
+   }
+   
+   post {
+       success {
+           echo 'CD Pipeline succeeded!'
+       }
+       failure {
+           echo 'CD Pipeline failed!'
+           sshagent(['docker-server-ssh']) {
+               sh """
+                   ssh -o StrictHostKeyChecking=no ${DOCKER_SERVER_USER}@${DOCKER_SERVER} '\
+                       docker stop cicd-test-project && \
+                       docker rm cicd-test-project && \
+                       docker run -d \
+                           --name cicd-test-project \
+                           -p 8080:8080 \
+                           ${DOCKER_IMAGE}:${BUILD_NUMBER.toInteger() - 1}'
+               """
+           }
+       }
+       always {
+           sshagent(['docker-server-ssh']) {
+               sh """
+                   ssh -o StrictHostKeyChecking=no ${DOCKER_SERVER_USER}@${DOCKER_SERVER} '\
+                       docker images ${DOCKER_IMAGE} --format "{{.ID}}" | \
+                       sort -r | \
+                       tail -n +4 | \
+                       xargs --no-run-if-empty docker rmi'
+               """
+           }
+       }
+   }
 }
