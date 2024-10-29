@@ -42,14 +42,14 @@ class TodoServiceTest {
         assertThat(completed.isCompleted()).isTrue();
     }
 
-    @Test
-    void failureTest() {
-        // given
-        String title = "Test Todo";
-        Todo todo = todoService.create(title);
-
-        // when & then
-        // 일부러 실패하는 테스트
-        assertThat(todo.isCompleted()).isTrue();
-    }
+//    @Test
+//    void failureTest() {
+//        // given
+//        String title = "Test Todo";
+//        Todo todo = todoService.create(title);
+//
+//        // when & then
+//        // 일부러 실패하는 테스트
+//        assertThat(todo.isCompleted()).isTrue();
+//    }
 }
