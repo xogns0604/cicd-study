@@ -6,6 +6,17 @@ pipeline {
     }
     
     stages {
+        stage('Check if PR') {
+            steps {
+                script {
+                    if (env.CHANGE_ID == null) {
+                        // CHANGE_ID가 없다면 PR이 아님
+                        error('This build is not from a Pull Request. Skipping...')
+                    }
+                }
+            }
+        }
+        
         stage('Checkout') {
             steps {
                 checkout scm
