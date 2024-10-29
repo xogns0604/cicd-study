@@ -32,7 +32,7 @@ class TodoServiceTest {
 
     @Test
     void completeTodo() {
-        // given
+        // given test
         Todo todo = todoService.create("Test Todo");
 
         // when

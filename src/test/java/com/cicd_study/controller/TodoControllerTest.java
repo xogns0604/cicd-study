@@ -37,7 +37,7 @@ class TodoControllerTest {
 
     @Test
     void findAll() throws Exception {
-        // when & then
+        // when & then test
         mockMvc.perform(get("/api/todos"))
                 .andExpect(status().isOk());
     }
