@@ -18,17 +18,17 @@ pipeline {
     
     stages {
         stage('Check Branch') {
-    steps {
-        script {
-            // GitHub에서 PR 머지 시의 타겟 브랜치 확인
-            def targetBranch = env.BRANCH_NAME ?: sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
-            echo "Current branch: ${targetBranch}"
-            if (!(targetBranch in ['main', 'origin/main'])) {
-                error("CD pipeline should only run on main branch. Current branch: ${targetBranch}")
+            steps {
+                script {
+                    // GitHub에서 PR 머지 시의 타겟 브랜치 확인
+                    def targetBranch = env.BRANCH_NAME ?: sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
+                    echo "Current branch: ${targetBranch}"
+                    if (!(targetBranch in ['main', 'origin/main'])) {
+                        error("CD pipeline should only run on main branch. Current branch: ${targetBranch}")
+                    }
+                }
             }
         }
-    }
-}
         
         stage('Checkout') {
             steps {
