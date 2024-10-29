@@ -42,14 +42,19 @@ class TodoServiceTest {
         assertThat(completed.isCompleted()).isTrue();
     }
 
-//    @Test
-//    void failureTest() {
-//        // given
-//        String title = "Test Todo";
-//        Todo todo = todoService.create(title);
-//
-//        // when & then
-//        // 일부러 실패하는 테스트
-//        assertThat(todo.isCompleted()).isTrue();
-//    }
+    @Test
+    void updateTodoTitle() {
+        // given
+        Todo todo = todoService.create("Original Title");
+        String newTitle = "Updated Title";
+
+        // when
+        Todo updated = todoService.updateTitle(todo.getId(), newTitle);
+
+        // then
+        assertThat(updated.getTitle()).isEqualTo(newTitle);
+        assertThat(updated.getId()).isEqualTo(todo.getId());  // 동일한 Todo인지 확인
+        assertThat(updated.isCompleted()).isEqualTo(todo.isCompleted());  // 완료 상태는 변경되지 않았는지 확인
+    }
+
 }
