@@ -1,0 +1,271 @@
+pipeline {
+    agent any
+    
+    tools {
+        jdk 'jdk17'
+    }
+    
+    environment {
+        // GroqCloud 설정
+        GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'
+        GROQ_MODEL = 'mixtral-8x7b-32768'
+        REQUEST_TIMEOUT = '600'
+        FILE_EXTENSIONS = '.java'
+        GROQ_API_KEY = credentials('groq-api-key')
+        
+        // 리뷰 프롬프트 설정
+        REVIEW_ASPECTS = '''
+            1. Code quality and Java best practices
+            2. Potential bugs or logical errors
+            3. Performance considerations
+            4. Clean code principles
+            5. Design patterns usage
+            6. Security concerns
+        '''
+        
+        REVIEW_FORMAT = '''
+            ## Summary
+            [Brief overview of the code]
+            
+            ## Key Findings
+            [Main points and issues]
+            
+            ## Recommendations
+            [Specific suggestions for improvement]
+        '''
+    }
+    
+    stages {
+        stage('Check if PR to main') {
+            steps {
+                script {
+                    if (env.CHANGE_TARGET != 'main') {
+                        error('This build is only for PRs to main branch')
+                    }
+                }
+            }
+        }
+        
+        stage('Get Changed Files') {
+            steps {
+                script {
+                    // 변경된 파일 목록 가져오기
+                    env.CHANGED_FILES = sh(
+                        script: "git diff --name-only origin/${env.CHANGE_TARGET} HEAD",
+                        returnStdout: true
+                    ).trim()
+                }
+            }
+        }
+        
+        stage('Code Review') {
+            steps {
+                script {
+                    // Python 스크립트를 위한 가상환경 생성
+                    sh '''
+                        python3 -m venv venv
+                        . venv/bin/activate
+                        pip install requests
+                    '''
+                    
+                    // Python 코드를 파일로 작성
+                    writeFile file: 'code_review.py', text: '''
+import requests
+import os
+import json
+from pathlib import Path
+
+# 환경 변수에서 설정 가져오기
+GROQ_API_URL = os.environ['GROQ_API_URL']
+GROQ_MODEL = os.environ['GROQ_MODEL']
+GROQ_API_KEY = os.environ['GROQ_API_KEY']
+FILE_EXTENSIONS = os.environ['FILE_EXTENSIONS'].split(',')
+REQUEST_TIMEOUT = int(os.environ['REQUEST_TIMEOUT'])
+REVIEW_ASPECTS = os.environ['REVIEW_ASPECTS']
+REVIEW_FORMAT = os.environ['REVIEW_FORMAT']
+
+print(f"Starting code review with timeout: {REQUEST_TIMEOUT} seconds")
+
+# 변경된 파일 목록
+changed_files = os.environ['CHANGED_FILES'].splitlines()
+review_comments = []
+
+# Java 파일만 필터링
+java_files = [f for f in changed_files if any(f.endswith(ext) for ext in FILE_EXTENSIONS)]
+
+if not java_files:
+    comment = "No Java files were changed in this PR."
+    review_comments.append(comment)
+else:
+    for file_path in java_files:
+        if not Path(file_path).exists():
+            continue
+            
+        print(f"Reviewing file: {file_path}")
+        file_content = Path(file_path).read_text()
+        
+        try:
+            print(f"Sending request to GroqCloud for {file_path}")
+            headers = {
+                'Authorization': f'Bearer {GROQ_API_KEY}',
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+            
+            # 1단계: 영어로 코드 리뷰 요청
+            response = requests.post(
+                GROQ_API_URL,
+                headers=headers,
+                json={
+                    "model": GROQ_MODEL,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": f"You are a senior Java developer conducting a code review. Focus on these aspects:\\n{REVIEW_ASPECTS}"
+                        },
+                        {
+                            "role": "user",
+                            "content": f"Please review this Java code:\\nFile: {file_path}\\n\\n```java\\n{file_content}\\n```"
+                        }
+                    ],
+                    "temperature": 0.7,
+                    "max_tokens": 4000
+                },
+                timeout=REQUEST_TIMEOUT
+            )
+            
+            response.raise_for_status()
+            result = response.json()
+            
+            if 'choices' in result and len(result['choices']) > 0:
+                english_review = result['choices'][0]['message']['content']
+                print(f"Successfully got English review for {file_path}")
+                
+                # 2단계: 영어 리뷰 결과를 한글로 번역 요청
+                translation_response = requests.post(
+                    GROQ_API_URL,
+                    headers=headers,
+                    json={
+                        "model": GROQ_MODEL,
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "You are a technical translator specializing in translating code reviews from English to Korean."
+                            },
+                            {
+                                "role": "user",
+                                "content": f"""다음 코드 리뷰를 한글로 번역해주세요. 
+                                단, 다음 사항을 주의해서 번역해주세요:
+                                1. 클래스명, 메서드명, 변수명은 그대로 유지
+                                2. 디자인 패턴명, 프레임워크명 등 기술 용어는 영문 유지
+                                3. 나머지 내용은 자연스러운 한국어로 번역
+                                4. 원문의 구조(##으로 시작하는 섹션 등)는 유지
+                                
+                                원문:
+                                {english_review}"""
+                            }
+                        ],
+                        "temperature": 0.7,
+                        "max_tokens": 4000
+                    },
+                    timeout=REQUEST_TIMEOUT
+                )
+                
+                translation_response.raise_for_status()
+                translation_result = translation_response.json()
+                
+                if 'choices' in translation_result and len(translation_result['choices']) > 0:
+                    korean_review = translation_result['choices'][0]['message']['content']
+                    review_comments.append(f"## Code Review for `{file_path}`\\n\\n{korean_review}\\n\\n---\\n")
+                    print(f"Successfully reviewed and translated for {file_path}")
+                else:
+                    error_message = f"⚠️ Failed to get translation content for `{file_path}`"
+                    review_comments.append(f"{error_message}\\n\\n---\\n")
+                    print(error_message)
+            else:
+                error_message = f"⚠️ Failed to get review content for `{file_path}`"
+                review_comments.append(f"{error_message}\\n\\n---\\n")
+                print(error_message)
+                
+        except requests.exceptions.RequestException as e:
+            error_message = f"⚠️ API request failed for `{file_path}`: {str(e)}"
+            review_comments.append(f"{error_message}\\n\\n---\\n")
+            print(error_message)
+        except Exception as e:
+            error_message = f"⚠️ Error reviewing `{file_path}`: {str(e)}"
+            review_comments.append(f"{error_message}\\n\\n---\\n")
+            print(error_message)
+
+# 결과를 파일로 저장
+with open('review_results.txt', 'w') as f:
+    f.write(f"""
+# GroqCloud 코드 리뷰 결과
+
+사용 모델: `{GROQ_MODEL}`
+타임아웃 설정: `{REQUEST_TIMEOUT}초`
+
+{"".join(review_comments)}
+
+---
+이 리뷰는 Jenkins Pipeline의 GroqCloud Code Review 스테이지에 의해 자동으로 생성되었습니다.
+""")
+'''
+                    
+                    // Python 스크립트 실행
+                    sh '''
+                        . venv/bin/activate
+                        python code_review.py
+                    '''
+                    
+                    // 리뷰 결과를 Jenkins 콘솔에 출력
+                    def reviewResults = readFile('review_results.txt')
+                    echo "Code Review Results:"
+                    echo reviewResults
+                    
+                    // PR에 코멘트 추가 (Jenkins GitHub Branch Source 플러그인 사용)
+                    if (env.CHANGE_ID) {
+                        publishChecks name: 'Code Review',
+                            title: 'GroqCloud Code Review',
+                            summary: reviewResults,
+                            text: reviewResults
+                    }
+                }
+            }
+        }
+        
+        stage('Test') {
+            steps {
+                sh '''
+                    chmod +x ./gradlew
+                    ./gradlew test
+                '''
+            }
+            post {
+                always {
+                    junit '**/build/test-results/test/*.xml'
+                }
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                sh './gradlew clean build -x test'
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo 'CI Pipeline succeeded!'
+        }
+        failure {
+            echo 'CI Pipeline failed!'
+        }
+        always {
+            // 가상환경 정리
+            sh 'rm -rf venv'
+            // 임시 파일 정리
+            sh 'rm -f code_review.py review_results.txt'
+        }
+    }
+}
