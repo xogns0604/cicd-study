@@ -18,16 +18,16 @@ pipeline {
    
    stages {
        stage('Check Branch') {
-           steps {
-               script {
-                   def targetBranch = env.BRANCH_NAME ?: sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
-                   echo "Current branch: ${targetBranch}"
-                   if (!(targetBranch in ['main', 'origin/main'])) {
-                       error("CD pipeline should only run on main branch. Current branch: ${targetBranch}")
-                   }
-               }
-           }
-       }
+          steps {
+              script {
+                  def targetBranch = sh(script: 'git name-rev --name-only HEAD', returnStdout: true).trim()
+                  echo "Current branch: ${targetBranch}"
+                  if (!(targetBranch ==~ /.*main$/)) {  // main으로 끝나는 브랜치명 체크
+                      error("CD pipeline should only run on main branch. Current branch: ${targetBranch}")
+                  }
+              }
+          }
+      }
        
        stage('Checkout') {
            steps {
