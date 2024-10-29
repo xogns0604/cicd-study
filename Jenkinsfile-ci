@@ -5,11 +5,6 @@ pipeline {
         jdk 'jdk17'
     }
     
-    triggers {
-        // PR 이벤트를 감지하도록 변경
-        githubPullRequests()
-    }
-    
     stages {
         stage('Checkout') {
             steps {
